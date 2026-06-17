@@ -713,8 +713,9 @@ namespace ICSharpCode.ILSpy.Languages
 				// The display writer doesn't record node positions, and CreateSequencePoints needs
 				// them. Re-run the formatting through a throwaway writer that sets AST locations;
 				// identical settings make its line numbering match the display output.
+				using var stringWriter = new StringWriter();
 				var locWriter = TokenWriter.WrapInWriterThatSetsLocationsInAST(
-					new TextWriterTokenWriter(new StringWriter()) { IndentationString = settings.CSharpFormattingOptions.IndentationString });
+					new TextWriterTokenWriter(stringWriter) { IndentationString = settings.CSharpFormattingOptions.IndentationString });
 				syntaxTree.AcceptVisitor(new CSharpOutputVisitor(locWriter, settings.CSharpFormattingOptions));
 				sequencePoints = decompiler.CreateSequencePoints(syntaxTree);
 			}
