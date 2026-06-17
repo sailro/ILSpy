@@ -316,11 +316,11 @@ namespace ICSharpCode.ILSpy.Languages
 			{
 				var members = CollectFieldsAndCtors(methodDefinition.DeclaringTypeDefinition!, methodDefinition.IsStatic);
 				decompiler.AstTransforms.Add(new SelectCtorTransform(methodDefinition));
-				WriteCode(output, options.DecompilerSettings, decompiler.Decompile(members), decompiler.TypeSystem);
+				WriteCode(output, options.DecompilerSettings, decompiler, decompiler.Decompile(members));
 			}
 			else
 			{
-				WriteCode(output, options.DecompilerSettings, decompiler.Decompile(method.MetadataToken), decompiler.TypeSystem);
+				WriteCode(output, options.DecompilerSettings, decompiler, decompiler.Decompile(method.MetadataToken));
 			}
 			OnCSharpDecompiled(output, options);
 		}
@@ -333,7 +333,7 @@ namespace ICSharpCode.ILSpy.Languages
 		{
 			CSharpDecompiler decompiler = BeginDecompile(property, output, options);
 			WriteCommentLine(output, TypeToString(property.DeclaringType));
-			WriteCode(output, options.DecompilerSettings, decompiler.Decompile(property.MetadataToken), decompiler.TypeSystem);
+			WriteCode(output, options.DecompilerSettings, decompiler, decompiler.Decompile(property.MetadataToken));
 			OnCSharpDecompiled(output, options);
 		}
 
@@ -343,14 +343,14 @@ namespace ICSharpCode.ILSpy.Languages
 			WriteCommentLine(output, TypeToString(field.DeclaringType));
 			if (field.IsConst)
 			{
-				WriteCode(output, options.DecompilerSettings, decompiler.Decompile(field.MetadataToken), decompiler.TypeSystem);
+				WriteCode(output, options.DecompilerSettings, decompiler, decompiler.Decompile(field.MetadataToken));
 			}
 			else
 			{
 				var members = CollectFieldsAndCtors(field.DeclaringTypeDefinition!, field.IsStatic);
 				var resolvedField = decompiler.TypeSystem.MainModule.GetDefinition((FieldDefinitionHandle)field.MetadataToken);
 				decompiler.AstTransforms.Add(new SelectFieldTransform(resolvedField));
-				WriteCode(output, options.DecompilerSettings, decompiler.Decompile(members), decompiler.TypeSystem);
+				WriteCode(output, options.DecompilerSettings, decompiler, decompiler.Decompile(members));
 			}
 			OnCSharpDecompiled(output, options);
 		}
@@ -379,7 +379,7 @@ namespace ICSharpCode.ILSpy.Languages
 			CSharpDecompiler decompiler = BeginDecompile(extension, output, options);
 			WriteCommentLine(output, TypeToString(commentType,
 				ConversionFlags.UseFullyQualifiedTypeNames | ConversionFlags.UseFullyQualifiedEntityNames | ConversionFlags.SupportExtensionDeclarations));
-			WriteCode(output, options.DecompilerSettings, decompiler.DecompileExtension(extension.MetadataToken), decompiler.TypeSystem);
+			WriteCode(output, options.DecompilerSettings, decompiler, decompiler.DecompileExtension(extension.MetadataToken));
 			OnCSharpDecompiled(output, options);
 		}
 
@@ -387,7 +387,7 @@ namespace ICSharpCode.ILSpy.Languages
 		{
 			CSharpDecompiler decompiler = BeginDecompile(ev, output, options);
 			WriteCommentLine(output, TypeToString(ev.DeclaringType));
-			WriteCode(output, options.DecompilerSettings, decompiler.Decompile(ev.MetadataToken), decompiler.TypeSystem);
+			WriteCode(output, options.DecompilerSettings, decompiler, decompiler.Decompile(ev.MetadataToken));
 			OnCSharpDecompiled(output, options);
 		}
 
@@ -395,7 +395,7 @@ namespace ICSharpCode.ILSpy.Languages
 		{
 			CSharpDecompiler decompiler = BeginDecompile(type, output, options);
 			WriteCommentLine(output, TypeToString(type, ConversionFlags.UseFullyQualifiedTypeNames | ConversionFlags.UseFullyQualifiedEntityNames));
-			WriteCode(output, options.DecompilerSettings, decompiler.Decompile(type.MetadataToken), decompiler.TypeSystem);
+			WriteCode(output, options.DecompilerSettings, decompiler, decompiler.Decompile(type.MetadataToken));
 			OnCSharpDecompiled(output, options);
 		}
 
@@ -482,7 +482,7 @@ namespace ICSharpCode.ILSpy.Languages
 			SyntaxTree st = options.FullDecompilation
 				? decompiler.DecompileWholeModuleAsSingleFile()
 				: decompiler.DecompileModuleAndAssemblyAttributes();
-			WriteCode(output, options.DecompilerSettings, st, decompiler.TypeSystem);
+			WriteCode(output, options.DecompilerSettings, decompiler, st);
 			return null;
 		}
 
@@ -681,14 +681,73 @@ namespace ICSharpCode.ILSpy.Languages
 			}
 		}
 
-		static void WriteCode(ITextOutput output, DecompilerSettings settings, SyntaxTree syntaxTree, IDecompilerTypeSystem typeSystem)
+		static void WriteCode(ITextOutput output, DecompilerSettings settings, CSharpDecompiler decompiler, SyntaxTree syntaxTree)
 		{
 			syntaxTree.AcceptVisitor(new InsertParenthesesVisitor { InsertParenthesesForReadability = true });
 			output.IndentationString = settings.CSharpFormattingOptions.IndentationString;
-			TokenWriter tokenWriter = new TextTokenWriter(output, settings, typeSystem);
+			// The line this code block starts on in the document, so captured sequence-point lines
+			// (numbered from the block's start) can be shifted to absolute document lines.
+			var bookmarkOutput = output as TextView.AvaloniaEditTextOutput;
+			int baseLine = bookmarkOutput?.CurrentLine ?? 1;
+
+			TokenWriter tokenWriter = new TextTokenWriter(output, settings, decompiler.TypeSystem);
 			if (output is TextView.ISmartTextOutput smartOutput)
 				tokenWriter = new CSharpHighlightingTokenWriter(tokenWriter, smartOutput);
 			syntaxTree.AcceptVisitor(new CSharpOutputVisitor(tokenWriter, settings.CSharpFormattingOptions));
+
+			// Capture the IL-offset <-> line map so in-method bookmarks can anchor by IL offset
+			// (see BookmarkManager). Only done for the on-screen C# view.
+			if (bookmarkOutput != null)
+				CaptureBookmarkDebugInfo(bookmarkOutput, settings, decompiler, syntaxTree, baseLine);
+		}
+
+		// Builds a Bookmarks.MethodDebugInfo per top-level method from the decompiler's sequence
+		// points. Only top-level functions are captured: their tokens resolve to navigable members,
+		// and a clicked line in a lambda/local function simply falls back to a member (token) anchor.
+		static void CaptureBookmarkDebugInfo(TextView.AvaloniaEditTextOutput output, DecompilerSettings settings,
+			CSharpDecompiler decompiler, SyntaxTree syntaxTree, int baseLine)
+		{
+			Dictionary<ICSharpCode.Decompiler.IL.ILFunction, List<ICSharpCode.Decompiler.DebugInfo.SequencePoint>> sequencePoints;
+			try
+			{
+				// The display writer doesn't record node positions, and CreateSequencePoints needs
+				// them. Re-run the formatting through a throwaway writer that sets AST locations;
+				// identical settings make its line numbering match the display output.
+				var locWriter = TokenWriter.WrapInWriterThatSetsLocationsInAST(
+					new TextWriterTokenWriter(new StringWriter()) { IndentationString = settings.CSharpFormattingOptions.IndentationString });
+				syntaxTree.AcceptVisitor(new CSharpOutputVisitor(locWriter, settings.CSharpFormattingOptions));
+				sequencePoints = decompiler.CreateSequencePoints(syntaxTree);
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine($"[CSharpLanguage] sequence-point capture failed: {ex}");
+				return;
+			}
+
+			foreach (var (function, points) in sequencePoints)
+			{
+				// Only top-level methods get a token that resolves to a navigable tree node.
+				if (function.Kind != ICSharpCode.Decompiler.IL.ILFunctionKind.TopLevelFunction)
+					continue;
+				var method = function.Method;
+				var file = method?.ParentModule?.MetadataFile;
+				if (method == null || file == null)
+					continue;
+
+				var lines = new List<(int Line, int ILOffset)>();
+				foreach (var sp in points)
+				{
+					if (!sp.IsHidden)
+						lines.Add((baseLine + sp.StartLine - 1, sp.Offset));
+				}
+				if (lines.Count == 0)
+					continue;
+
+				uint token = (uint)System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(method.MetadataToken);
+				string moduleName = string.IsNullOrEmpty(file.FileName) ? file.Name : Path.GetFileName(file.FileName);
+				output.AddMethodDebugInfo(new Bookmarks.MethodDebugInfo(
+					token, file.FileName, file.FullName, moduleName, method.FullName, lines));
+			}
 		}
 
 		void AddWarningMessage(MetadataFile module, ITextOutput output, string line1, string? line2 = null,
