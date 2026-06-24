@@ -61,9 +61,12 @@ namespace ICSharpCode.ILSpy.TreeNodes
 
 		public override void Decompile(Language language, ITextOutput output, DecompilationOptions options)
 		{
-			var targetFramework = parentAssembly.LoadedAssembly.GetTargetFrameworkIdAsync().GetAwaiter().GetResult();
-			var runtimePack = parentAssembly.LoadedAssembly.GetRuntimePackAsync().GetAwaiter().GetResult();
-			output.WriteLine($"Detected TargetFramework-Id: {targetFramework}");
+			var loadedAssembly = parentAssembly.LoadedAssembly;
+			var detectedTargetFramework = loadedAssembly.GetDetectedTargetFrameworkIdAsync().GetAwaiter().GetResult();
+			var effectiveTargetFramework = loadedAssembly.GetTargetFrameworkIdAsync().GetAwaiter().GetResult();
+			var runtimePack = loadedAssembly.GetRuntimePackAsync().GetAwaiter().GetResult();
+			output.WriteLine($"Detected TargetFramework-Id: {detectedTargetFramework}");
+			output.WriteLine($"Effective TargetFramework-Id: {effectiveTargetFramework}");
 			output.WriteLine($"Detected RuntimePack: {runtimePack}");
 
 			// Children realise lazily on the UI thread; we may run from a background decompile.

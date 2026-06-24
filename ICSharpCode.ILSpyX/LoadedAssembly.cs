@@ -137,13 +137,26 @@ namespace ICSharpCode.ILSpyX
 		string? targetFrameworkId;
 
 		/// <summary>
-		/// Returns a target framework identifier in the form '&lt;framework&gt;Version=v&lt;version&gt;'.
-		/// Returns an empty string if no TargetFrameworkAttribute was found
-		/// or the file doesn't contain an assembly header, i.e., is only a module.
-		/// 
-		/// Throws an exception if the file does not contain any .NET metadata (e.g. file of unknown format).
+		/// Returns the effective target framework identifier in the form '&lt;framework&gt;Version=v&lt;version&gt;'.
+		/// An explicit override wins over the detected value.
 		/// </summary>
 		public async Task<string> GetTargetFrameworkIdAsync()
+		{
+			// An explicit override wins over (and bypasses) detection, even once detection has
+			// already cached a value, so the user's framework hint drives reference resolution.
+			if (TargetFrameworkIdOverride is { } tfmOverride)
+				return tfmOverride;
+			return await GetDetectedTargetFrameworkIdAsync().ConfigureAwait(false);
+		}
+
+		/// <summary>
+		/// Returns the detected target framework identifier in the form '&lt;framework&gt;Version=v&lt;version&gt;'.
+		/// Returns an empty string if no TargetFrameworkAttribute was found
+		/// or the file doesn't contain an assembly header, i.e., is only a module.
+		///
+		/// Throws an exception if the file does not contain any .NET metadata (e.g. file of unknown format).
+		/// </summary>
+		public async Task<string> GetDetectedTargetFrameworkIdAsync()
 		{
 			var value = LazyInit.VolatileRead(ref targetFrameworkId);
 			if (value == null)
@@ -372,6 +385,15 @@ namespace ICSharpCode.ILSpyX
 		/// Gets the PDB file name or null, if no PDB was found or it's embedded.
 		/// </summary>
 		public string? PdbFileName { get; private set; }
+
+		/// <summary>
+		/// Overrides the target framework used to resolve this assembly's references, in the
+		/// '&lt;framework&gt;,Version=v&lt;version&gt;' form (e.g. ".NETFramework,Version=v4.8").
+		/// Null means the framework detected from the TargetFrameworkAttribute is used.
+		/// Set this before the assembly's references are first resolved (initial load) or follow
+		/// a change with a reload: the resolver is built once per LoadedAssembly and frozen.
+		/// </summary>
+		public string? TargetFrameworkIdOverride { get; set; }
 
 		async Task<LoadResult> LoadAsync(Task<Stream?>? streamTask)
 		{

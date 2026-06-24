@@ -726,6 +726,9 @@ Are you sure you want to continue?</value>
   <data name="InsertUsingDeclarations" xml:space="preserve">
     <value>Insert using declarations</value>
   </data>
+  <data name="InvalidTargetFramework" xml:space="preserve">
+    <value>Unknown target framework. Enter a moniker such as net48 or net6.0.</value>
+  </data>
   <data name="ListDeleteConfirmation" xml:space="preserve">
     <value>Are you sure that you want to delete the selected assembly list?</value>
   </data>
@@ -985,6 +988,9 @@ Do you want to continue?</value>
   <data name="SelectVersionDropdownTooltip" xml:space="preserve">
     <value>Select version of language to output (Alt+E)</value>
   </data>
+  <data name="SetTargetFramework" xml:space="preserve">
+    <value>Set Target Framework...</value>
+  </data>
   <data name="SettingsChangeRestartRequired" xml:space="preserve">
     <value>You must restart ILSpy for the change to take effect.</value>
   </data>
@@ -1071,6 +1077,9 @@ Do you want to continue?</value>
   </data>
   <data name="TabSize" xml:space="preserve">
     <value>Tab size:</value>
+  </data>
+  <data name="TargetFramework" xml:space="preserve">
+    <value>Target framework:</value>
   </data>
   <data name="Theme" xml:space="preserve">
     <value>Theme</value>
